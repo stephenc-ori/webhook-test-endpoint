@@ -1,0 +1,70 @@
+name: pr
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # The PR title becomes the squash-merge commit subject, which drives the
+  # semver bump in the release workflow — it must be a conventional commit.
+  title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: gofmt -l . | tee /dev/stderr | wc -l | grep -qx 0
+      - uses: golangci/golangci-lint-action@v8
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Cross-compile all release targets
+        run: |
+          set -e
+          while read -r GOOS GOARCH GOARM; do
+            echo "building $GOOS/$GOARCH${GOARM:+v$GOARM}"
+            CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM go build -o /dev/null .
+          done <<'EOF'
+          linux 386
+          linux amd64
+          linux arm 7
+          linux arm64
+          windows amd64
+          windows arm64
+          darwin amd64
+          darwin arm64
+          EOF
+      - uses: docker/setup-buildx-action@v3
+      - name: Docker image builds
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha

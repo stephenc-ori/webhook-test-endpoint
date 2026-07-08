@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webhook Test Endpoint</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="app">
+
+<header class="topbar">
+  <a class="brand" href="/">Webhook Test Endpoint</a>
+  <div class="hook-url">
+    <code id="hook-url"></code>
+    <button id="copy-btn" class="btn btn-small" title="Copy hook URL">Copy</button>
+  </div>
+  <div class="topbar-right">
+    <span id="conn-status" class="conn-dot" title="Live stream status"></span>
+    <button id="config-toggle" class="btn btn-small">Settings</button>
+  </div>
+</header>
+
+<section id="config-panel" class="config-panel" hidden>
+  <form id="config-form">
+    <div class="config-grid">
+
+      <fieldset>
+        <legend>Authentication</legend>
+        <label class="radio"><input type="radio" name="authMode" value="none" checked> None</label>
+        <label class="radio"><input type="radio" name="authMode" value="basic"> Basic</label>
+        <label class="radio"><input type="radio" name="authMode" value="bearer"> Bearer</label>
+        <div id="basic-fields" class="sub-fields" hidden>
+          <label>Username <input type="text" name="basicUser" autocomplete="off"></label>
+          <label>Password <input type="text" name="basicPass" autocomplete="off"></label>
+        </div>
+        <div id="bearer-fields" class="sub-fields" hidden>
+          <label>Token <input type="text" name="bearerToken" autocomplete="off"></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Payload signature (HMAC&#8209;SHA256)</legend>
+        <label class="radio"><input type="checkbox" name="sigEnabled"> Verify signatures</label>
+        <div id="sig-fields" class="sub-fields" hidden>
+          <label>Header <input type="text" name="sigHeader" placeholder="X-Hub-Signature-256"></label>
+          <label>Shared secret <input type="text" name="sigSecret" autocomplete="off"></label>
+          <p class="hint">Expects <code>sha256=&lt;hex digest&gt;</code>, GitHub style.</p>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>On auth/signature failure</legend>
+        <label class="radio"><input type="radio" name="failureMode" value="reject_log" checked> Reject (401/403) and log the request</label>
+        <label class="radio"><input type="radio" name="failureMode" value="reject_silent"> Reject silently (not logged)</label>
+        <label class="radio"><input type="radio" name="failureMode" value="accept_mark"> Accept, but mark as failed</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Response</legend>
+        <label>Status code <input type="number" name="respStatus" min="100" max="599" value="200"></label>
+        <label>Content type <input type="text" name="respContentType" value="application/json"></label>
+        <label>Body <textarea name="respBody" rows="3">{"status":"success"}</textarea></label>
+      </fieldset>
+
+    </div>
+    <div class="config-actions">
+      <span id="config-msg" class="config-msg"></span>
+      <button type="submit" class="btn btn-primary">Save settings</button>
+    </div>
+  </form>
+</section>
+
+<main class="content">
+  <aside class="event-list-pane">
+    <div class="pane-header">
+      <span>Requests <span id="event-count" class="count-badge">0</span></span>
+      <button id="clear-btn" class="btn btn-small" title="Clear the list in this browser session">Clear</button>
+    </div>
+    <ul id="event-list" class="event-list"></ul>
+    <div id="empty-state" class="empty-state">
+      <p>Waiting for requests&hellip;</p>
+      <p class="small">Send one with:</p>
+      <pre id="curl-example"></pre>
+    </div>
+  </aside>
+
+  <section class="detail-pane">
+    <div id="detail-empty" class="empty-state"><p>Select a request to inspect it.</p></div>
+    <div id="detail" hidden>
+      <div class="detail-header">
+        <span id="d-method" class="method-badge"></span>
+        <code id="d-path"></code>
+        <span id="d-time" class="muted"></span>
+      </div>
+      <div id="d-badges" class="detail-badges"></div>
+      <div class="detail-meta">
+        <span class="muted">From</span> <code id="d-remote"></code>
+      </div>
+      <h3>Headers</h3>
+      <table class="headers-table"><tbody id="d-headers"></tbody></table>
+      <h3>Body
+        <span class="body-controls">
+          <button id="body-raw" class="btn btn-small toggle active">Raw</button>
+          <button id="body-json" class="btn btn-small toggle">JSON</button>
+        </span>
+      </h3>
+      <pre id="d-body" class="body-view"></pre>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

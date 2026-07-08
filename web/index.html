@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webhook Test Endpoint</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="landing">
+<main class="landing-card">
+  <h1>Webhook Test Endpoint</h1>
+  <p>Generate a unique URL, point your webhook sender at it, and inspect
+     every request live &mdash; headers, payload, auth and signature checks.</p>
+  <form method="post" action="/new">
+    <button type="submit" class="btn btn-primary btn-lg">Generate endpoint</button>
+  </form>
+  <ul class="landing-features">
+    <li>Live event stream &mdash; requests appear as they arrive</li>
+    <li>Optional Basic or Bearer authentication</li>
+    <li>GitHub-style HMAC&#8209;SHA256 payload signature verification</li>
+    <li>Configurable response status and body</li>
+  </ul>
+  <p class="muted small">Endpoints are held in memory and expire after 24&nbsp;hours of inactivity.
+     The last 50 requests are retained server-side.</p>
+  <section id="ca-section" class="ca-section" hidden>
+    <h2>CA certificate</h2>
+    <p class="muted small">This server uses a self-signed certificate. Trust this CA in your
+       webhook sender to test server certificate validation
+       (<a href="/ca.pem" download>download</a>).</p>
+    <pre id="ca-pem" class="ca-pem"></pre>
+    <button id="ca-copy" class="btn btn-small">Copy PEM</button>
+  </section>
+</main>
+<script>
+(function () {
+  fetch("/ca.pem").then(function (res) {
+    if (!res.ok) return;
+    res.text().then(function (pem) {
+      document.getElementById("ca-pem").textContent = pem;
+      document.getElementById("ca-section").hidden = false;
+      document.getElementById("ca-copy").addEventListener("click", function () {
+        navigator.clipboard.writeText(pem).then(function () {
+          var b = document.getElementById("ca-copy");
+          b.textContent = "Copied";
+          setTimeout(function () { b.textContent = "Copy PEM"; }, 1500);
+        });
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

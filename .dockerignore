@@ -1,0 +1,9 @@
+.git
+*.md
+LICENSE
+Dockerfile
+.dockerignore
+.gitignore
+webhook-test-endpoint
+*.pem
+acme-cache/
