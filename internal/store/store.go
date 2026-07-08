@@ -3,20 +3,28 @@ package store
 
 import (
 	"crypto/rand"
+	_ "embed"
 	"math/big"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
 
-const (
-	// MaxEvents is the number of events retained per endpoint.
-	MaxEvents = 50
-	// IDLength is the length of generated endpoint IDs.
-	IDLength = 16
-	// idAlphabet is unambiguous lowercase base36.
-	idAlphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
-)
+// MaxEvents is the number of events retained per endpoint.
+const MaxEvents = 50
+
+// IDWords is the number of dictionary words in a generated endpoint ID.
+const IDWords = 3
+
+// words is the EFF large wordlist (https://www.eff.org/dice, CC BY 3.0),
+// minus its four hyphenated entries: 7772 lowercase words. Three words give
+// ~38.8 bits of entropy.
+//
+//go:embed words.txt
+var wordsFile string
+
+var words = strings.Split(strings.TrimSpace(wordsFile), "\n")
 
 // Event is a single received webhook request.
 type Event struct {
@@ -161,12 +169,17 @@ func New() *Store {
 // Create makes a new endpoint with a random ID and default config.
 func (s *Store) Create() *Endpoint {
 	e := &Endpoint{
-		ID:         newID(),
 		config:     DefaultConfig(),
 		lastActive: time.Now(),
 		subs:       make(map[chan Event]struct{}),
 	}
 	s.mu.Lock()
+	for {
+		e.ID = newID()
+		if _, taken := s.endpoints[e.ID]; !taken {
+			break
+		}
+	}
 	s.endpoints[e.ID] = e
 	s.mu.Unlock()
 	return e
@@ -210,15 +223,17 @@ func (s *Store) expire(ttl time.Duration) {
 	}
 }
 
+// newID returns IDWords random dictionary words joined with hyphens,
+// e.g. "abacus-zebra-canyon".
 func newID() string {
-	b := make([]byte, IDLength)
-	max := big.NewInt(int64(len(idAlphabet)))
-	for i := range b {
+	picked := make([]string, IDWords)
+	max := big.NewInt(int64(len(words)))
+	for i := range picked {
 		n, err := rand.Int(rand.Reader, max)
 		if err != nil {
 			panic(err) // crypto/rand failure is unrecoverable
 		}
-		b[i] = idAlphabet[n.Int64()]
+		picked[i] = words[n.Int64()]
 	}
-	return string(b)
+	return strings.Join(picked, "-")
 }

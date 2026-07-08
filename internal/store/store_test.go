@@ -1,6 +1,7 @@
 package store
 
 import (
+	"regexp"
 	"testing"
 	"time"
 )
@@ -64,14 +65,25 @@ func TestGetUnknownID(t *testing.T) {
 func TestIDGeneration(t *testing.T) {
 	s := New()
 	a, b := s.Create(), s.Create()
-	if len(a.ID) != IDLength {
-		t.Errorf("ID length = %d, want %d", len(a.ID), IDLength)
+	if !regexp.MustCompile(`^[a-z]+-[a-z]+-[a-z]+$`).MatchString(a.ID) {
+		t.Errorf("ID %q is not three hyphen-separated lowercase words", a.ID)
 	}
 	if a.ID == b.ID {
 		t.Error("two created endpoints share an ID")
 	}
 	if s.Get(a.ID) != a {
 		t.Error("Get did not return created endpoint")
+	}
+}
+
+func TestWordList(t *testing.T) {
+	if len(words) < 7000 {
+		t.Fatalf("word list has %d entries, want a large dictionary", len(words))
+	}
+	for _, w := range words {
+		if !regexp.MustCompile(`^[a-z]+$`).MatchString(w) {
+			t.Errorf("word %q is not plain lowercase", w)
+		}
 	}
 }
 

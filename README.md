@@ -12,8 +12,9 @@ $ go run github.com/stephenc-ori/webhook-test-endpoint@latest
 ```
 
 Open `http://localhost:8080/`, click **Generate endpoint**, and you are
-redirected to `/{id}/` — the inspector UI for that endpoint. The webhook
-receiver is `/{id}/hook`:
+redirected to `/{id}/` — the inspector UI for that endpoint. IDs are three
+random dictionary words, e.g. `abacus-zebra-canyon`. The webhook receiver
+is `/{id}/hook`:
 
 ```console
 $ curl -X POST -H 'Content-Type: application/json' \
@@ -25,6 +26,30 @@ The request appears in the UI immediately (Server-Sent Events). The server
 retains the last 50 requests per endpoint; the UI additionally keeps
 everything it has seen during the browser session. Endpoints live in memory
 and expire after 24 hours of inactivity.
+
+## Quick start on a public URL
+
+Webhook senders usually need to reach you from the internet. Two fast ways:
+
+**Cloudflare quick tunnel** — free, no account, exposes a locally running
+instance at a random `https://….trycloudflare.com` URL:
+
+```console
+$ go run . &
+$ cloudflared tunnel --url http://localhost:8080
+```
+
+**Google Cloud Run** — hosted, free tier covers light use, builds straight
+from this repo's Dockerfile:
+
+```console
+$ gcloud run deploy webhook-test-endpoint --source . \
+    --allow-unauthenticated --max-instances 1 --region europe-west1
+```
+
+`--max-instances 1` is required: endpoints and events are held in the
+memory of a single process. Cloud Run scales to zero when idle, which
+discards in-memory endpoints — generate a fresh one after a long pause.
 
 ## Endpoint settings
 
