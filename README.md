@@ -39,6 +39,10 @@ $ go run . &
 $ cloudflared tunnel --url http://localhost:8080
 ```
 
+Quick tunnels buffer Server-Sent Events, so live push does not get through;
+the UI detects the silent stream and falls back to polling every 5 seconds
+(the status dot turns amber).
+
 **Google Cloud Run** — hosted, free tier covers light use, builds straight
 from this repo's Dockerfile:
 

@@ -87,6 +87,44 @@ func TestWordList(t *testing.T) {
 	}
 }
 
+func TestValidID(t *testing.T) {
+	s := New()
+	real := s.Create().ID
+	for id, want := range map[string]bool{
+		real:                    true,
+		"abacus-zebra":          false, // two words
+		"abacus-zebra-nOtWoRd":  false, // not in dictionary
+		"abacus-zebra-zebra-ox": false, // four parts
+		"":                      false,
+		"abacus--zebra":         false,
+	} {
+		if got := ValidID(id); got != want {
+			t.Errorf("ValidID(%q) = %v, want %v", id, got, want)
+		}
+	}
+}
+
+func TestGetOrCreateRevives(t *testing.T) {
+	s := New()
+	// A valid ID from "before the restart" is revived with default config.
+	old := s.Create()
+	id := old.ID
+	s2 := New() // fresh store simulates a restart
+	e := s2.GetOrCreate(id)
+	if e == nil {
+		t.Fatal("valid old ID was not revived")
+	}
+	if e.ID != id {
+		t.Errorf("revived ID = %q, want %q", e.ID, id)
+	}
+	if s2.GetOrCreate(id) != e {
+		t.Error("second GetOrCreate should return the same endpoint")
+	}
+	if s2.GetOrCreate("not-a-valid-id!") != nil {
+		t.Error("invalid ID should not be created")
+	}
+}
+
 func TestExpire(t *testing.T) {
 	s := New()
 	e := s.Create()

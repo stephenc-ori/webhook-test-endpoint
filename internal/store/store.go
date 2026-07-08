@@ -26,6 +26,29 @@ var wordsFile string
 
 var words = strings.Split(strings.TrimSpace(wordsFile), "\n")
 
+var wordSet = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(words))
+	for _, w := range words {
+		m[w] = struct{}{}
+	}
+	return m
+}()
+
+// ValidID reports whether id has the shape of a generated endpoint ID:
+// exactly IDWords dictionary words joined with hyphens.
+func ValidID(id string) bool {
+	parts := strings.Split(id, "-")
+	if len(parts) != IDWords {
+		return false
+	}
+	for _, p := range parts {
+		if _, ok := wordSet[p]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // Event is a single received webhook request.
 type Event struct {
 	ID            int64       `json:"id"`
@@ -134,6 +157,15 @@ func (e *Endpoint) Add(ev Event) Event {
 	return ev
 }
 
+// ClearEvents discards all retained events. The ID counter keeps counting so
+// clients that merge by event ID never see a reused ID.
+func (e *Endpoint) ClearEvents() {
+	e.mu.Lock()
+	e.events = nil
+	e.lastActive = time.Now()
+	e.mu.Unlock()
+}
+
 // Touch records activity so the janitor does not expire the endpoint.
 func (e *Endpoint) Touch() {
 	e.mu.Lock()
@@ -190,6 +222,28 @@ func (s *Store) Get(id string) *Endpoint {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.endpoints[id]
+}
+
+// GetOrCreate returns the endpoint with the given ID, reviving it with
+// default config if id is a validly shaped ID that is not currently live —
+// so URLs survive a server restart. Invalid IDs return nil.
+func (s *Store) GetOrCreate(id string) *Endpoint {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e := s.endpoints[id]; e != nil {
+		return e
+	}
+	if !ValidID(id) {
+		return nil
+	}
+	e := &Endpoint{
+		ID:         id,
+		config:     DefaultConfig(),
+		lastActive: time.Now(),
+		subs:       make(map[chan Event]struct{}),
+	}
+	s.endpoints[id] = e
+	return e
 }
 
 // StartJanitor expires endpoints idle for longer than ttl, checking every

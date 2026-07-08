@@ -171,6 +171,7 @@ h1, h2, h3 { font-weight: 600; }
 }
 .conn-dot.connected { background: var(--ok); }
 .conn-dot.disconnected { background: var(--bad); }
+.conn-dot.polling { background: var(--warn); }
 
 /* ----- config panel ----- */
 .config-panel {
@@ -245,6 +246,7 @@ h1, h2, h3 { font-weight: 600; }
   border-bottom: 1px solid var(--border);
   font-weight: 600;
 }
+.pane-actions { display: flex; gap: 6px; }
 .count-badge {
   background: var(--code-bg);
   border-radius: 10px;

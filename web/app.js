@@ -12,7 +12,8 @@
   var events = [];        // all events this session, oldest first
   var byId = {};          // event id -> event (server ids are monotonic)
   var selectedId = null;
-  var bodyMode = "raw";   // "raw" | "json"
+  var bodyMode = "raw";   // "raw" | "json", reset per selected event
+  var follow = true;      // auto-select the newest event as it arrives
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -39,6 +40,31 @@
     });
     if (added) {
       events.sort(function (a, b) { return a.id - b.id; });
+      if (follow && events.length) {
+        selectEvent(events[events.length - 1].id);
+      }
+      render();
+    }
+  }
+
+  function isJSONEvent(ev) {
+    var vals = (ev.headers || {})["Content-Type"] || [];
+    return vals.some(function (v) { return v.toLowerCase().indexOf("json") !== -1; });
+  }
+
+  // Central selection change: the body view defaults to pretty JSON when the
+  // request said it was JSON, raw otherwise.
+  function selectEvent(id) {
+    if (selectedId === id) return;
+    selectedId = id;
+    bodyMode = id != null && isJSONEvent(byId[id]) ? "json" : "raw";
+  }
+
+  function setFollow(on) {
+    follow = on;
+    $("follow-btn").classList.toggle("active", on);
+    if (on && events.length) {
+      selectEvent(events[events.length - 1].id);
       render();
     }
   }
@@ -86,9 +112,14 @@
   }
 
   function onSelect(e) {
-    selectedId = Number(e.currentTarget.dataset.id);
+    setFollow(false);
+    selectEvent(Number(e.currentTarget.dataset.id));
     render();
   }
+
+  $("follow-btn").addEventListener("click", function () {
+    setFollow(!follow);
+  });
 
   // ----- detail pane -----
   function renderDetail() {
@@ -144,10 +175,13 @@
   $("body-json").addEventListener("click", function () { bodyMode = "json"; renderDetail(); });
 
   $("clear-btn").addEventListener("click", function () {
-    events = [];
-    byId = {};
-    selectedId = null;
-    render();
+    fetch(base + "api/events", { method: "DELETE" }).finally(function () {
+      events = [];
+      byId = {};
+      selectedId = null;
+      setFollow(true);
+      render();
+    });
   });
 
   // ----- config panel -----
@@ -220,10 +254,22 @@
     fetch(base + "api/events").then(function (r) { return r.json(); }).then(mergeEvents);
   }
 
+  // Some proxies (e.g. Cloudflare quick tunnels) silently buffer SSE: the
+  // stream opens but no messages ever arrive. The server sends a ping event
+  // every 20s, so a healthy stream is never silent for long. If nothing has
+  // arrived recently, fall back to polling so the UI still refreshes.
+  var lastStreamMsg = 0;
+
   function connect() {
     var es = new EventSource(base + "api/stream");
     es.addEventListener("webhook", function (msg) {
+      lastStreamMsg = Date.now();
       mergeEvents([JSON.parse(msg.data)]);
+    });
+    es.addEventListener("ping", function () {
+      lastStreamMsg = Date.now();
+      $("conn-status").className = "conn-dot connected";
+      $("conn-status").title = "Live stream connected";
     });
     es.onopen = function () {
       $("conn-status").className = "conn-dot connected";
@@ -236,6 +282,14 @@
       $("conn-status").title = "Live stream disconnected — reconnecting…";
     };
   }
+
+  setInterval(function () {
+    if (Date.now() - lastStreamMsg > 30000) {
+      $("conn-status").className = "conn-dot polling";
+      $("conn-status").title = "Live stream silent — polling every 5s";
+      loadEvents();
+    }
+  }, 5000);
 
   fetch(base + "api/config").then(function (r) { return r.json(); }).then(fillForm);
   loadEvents();

@@ -74,7 +74,10 @@
   <aside class="event-list-pane">
     <div class="pane-header">
       <span>Requests <span id="event-count" class="count-badge">0</span></span>
-      <button id="clear-btn" class="btn btn-small" title="Clear the list in this browser session">Clear</button>
+      <span class="pane-actions">
+        <button id="follow-btn" class="btn btn-small toggle active" title="Automatically show the newest request as it arrives">Follow</button>
+        <button id="clear-btn" class="btn btn-small" title="Clear events here and on the server">Clear</button>
+      </span>
     </div>
     <ul id="event-list" class="event-list"></ul>
     <div id="empty-state" class="empty-state">

@@ -38,6 +38,7 @@ func New(st *store.Store, caPEM []byte) *Server {
 	s.mux.HandleFunc("GET /{id}/{$}", s.handleApp)
 	s.mux.HandleFunc("/{id}/hook", s.handleHook)
 	s.mux.HandleFunc("GET /{id}/api/events", s.handleEvents)
+	s.mux.HandleFunc("DELETE /{id}/api/events", s.handleClearEvents)
 	s.mux.HandleFunc("GET /{id}/api/config", s.handleGetConfig)
 	s.mux.HandleFunc("PUT /{id}/api/config", s.handlePutConfig)
 	s.mux.HandleFunc("GET /{id}/api/stream", s.handleStream)
@@ -83,6 +84,15 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, e.Events())
 }
 
+func (s *Server) handleClearEvents(w http.ResponseWriter, r *http.Request) {
+	e := s.endpoint(w, r)
+	if e == nil {
+		return
+	}
+	e.ClearEvents()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	e := s.endpoint(w, r)
 	if e == nil {
@@ -110,9 +120,10 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // endpoint resolves the {id} path value, writing a 404 page and returning nil
-// if it does not exist.
+// if it does not exist. A validly shaped ID that is not live (e.g. from
+// before a server restart) is transparently re-created.
 func (s *Server) endpoint(w http.ResponseWriter, r *http.Request) *store.Endpoint {
-	e := s.store.Get(r.PathValue("id"))
+	e := s.store.GetOrCreate(r.PathValue("id"))
 	if e == nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)

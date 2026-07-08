@@ -94,6 +94,36 @@ func TestHookUnknownEndpoint(t *testing.T) {
 	}
 }
 
+func TestValidOldURLSelfCreates(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	// A well-formed ID unknown to this (freshly restarted) server revives.
+	const id = "abacus-zebra-canyon"
+	if st.Get(id) != nil {
+		t.Fatal("test precondition: id must not be live")
+	}
+	res := post(t, ts.URL+"/"+id+"/hook", `{"revived":true}`, nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("hook to revivable URL: status = %d, want 200", res.StatusCode)
+	}
+	e := st.Get(id)
+	if e == nil {
+		t.Fatal("endpoint was not self-created")
+	}
+	if evs := e.Events(); len(evs) != 1 || evs[0].Body != `{"revived":true}` {
+		t.Errorf("event not recorded on revived endpoint: %+v", evs)
+	}
+
+	// The SPA page also revives.
+	res2, err := http.Get(ts.URL + "/veal-canal-shrug/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res2.Body.Close()
+	if res2.StatusCode != http.StatusOK {
+		t.Errorf("SPA on revivable URL: status = %d, want 200", res2.StatusCode)
+	}
+}
+
 func setConfig(t *testing.T, e *store.Endpoint, mutate func(*store.Config)) {
 	t.Helper()
 	c := e.Config()
@@ -354,6 +384,32 @@ func TestEventsAPI(t *testing.T) {
 	}
 	if len(evs) != 2 || evs[0].Body != "one" || evs[1].Body != "two" {
 		t.Errorf("unexpected events: %+v", evs)
+	}
+}
+
+func TestClearEvents(t *testing.T) {
+	ts, _, e := newTestServer(t)
+	post(t, ts.URL+"/"+e.ID+"/hook", "one", nil)
+	post(t, ts.URL+"/"+e.ID+"/hook", "two", nil)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/"+e.ID+"/api/events", nil)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE status = %d, want 204", res.StatusCode)
+	}
+	if n := len(e.Events()); n != 0 {
+		t.Errorf("%d events after clear, want 0", n)
+	}
+
+	// IDs keep counting after a clear so clients merging by ID see no reuse.
+	post(t, ts.URL+"/"+e.ID+"/hook", "three", nil)
+	evs := e.Events()
+	if len(evs) != 1 || evs[0].ID != 3 {
+		t.Errorf("post-clear event = %+v, want single event with ID 3", evs)
 	}
 }
 
