@@ -5,6 +5,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -36,18 +38,19 @@ func (s *stringList) Set(v string) error {
 }
 
 type options struct {
-	addr          string
-	addrSet       bool
-	tlsCert       string
-	tlsKey        string
-	tlsSelfSigned bool
-	tlsHosts      string
-	acmeDomains   stringList
-	acmeEmail     string
-	acmeCache     string
-	acmeDirectory string
-	acmeHTTPAddr  string
-	showVersion   bool
+	addr            string
+	addrSet         bool
+	tlsCert         string
+	tlsKey          string
+	tlsSelfSigned   bool
+	tlsHosts        string
+	acmeDomains     stringList
+	acmeEmail       string
+	acmeCache       string
+	acmeDirectory   string
+	acmeHTTPAddr    string
+	proxySecretFile string
+	showVersion     bool
 }
 
 func parseFlags(args []string) (*options, error) {
@@ -63,6 +66,7 @@ func parseFlags(args []string) (*options, error) {
 	fs.StringVar(&o.acmeCache, "acme-cache", defaultACMECache(), "directory for cached ACME certificates")
 	fs.StringVar(&o.acmeDirectory, "acme-directory-url", "", "ACME directory URL override (e.g. Let's Encrypt staging); default is Let's Encrypt production")
 	fs.StringVar(&o.acmeHTTPAddr, "acme-http-addr", ":80", "plain-HTTP listen address for ACME HTTP-01 challenges and HTTPS redirect")
+	fs.StringVar(&o.proxySecretFile, "proxy-secret-file", "", "file holding the secret that unlocks the pass-through proxy feature; overridden by the WEBHOOK_PROXY_SECRET env var, generated and logged at startup if neither is given")
 	fs.BoolVar(&o.showVersion, "version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -95,6 +99,32 @@ func parseFlags(args []string) (*options, error) {
 	return o, nil
 }
 
+// resolveProxySecret decides the secret that unlocks the pass-through proxy
+// feature: the WEBHOOK_PROXY_SECRET env var wins; otherwise the contents of
+// secretFile if given; otherwise a fresh random secret logged to the console.
+// generated reports whether the returned secret was freshly generated.
+func resolveProxySecret(secretFile string) (secret string, generated bool, err error) {
+	if s := strings.TrimSpace(os.Getenv("WEBHOOK_PROXY_SECRET")); s != "" {
+		return s, false, nil
+	}
+	if secretFile != "" {
+		b, err := os.ReadFile(secretFile)
+		if err != nil {
+			return "", false, fmt.Errorf("reading -proxy-secret-file: %w", err)
+		}
+		s := strings.TrimSpace(string(b))
+		if s == "" {
+			return "", false, fmt.Errorf("-proxy-secret-file %q is empty", secretFile)
+		}
+		return s, false, nil
+	}
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", false, fmt.Errorf("generating proxy secret: %w", err)
+	}
+	return hex.EncodeToString(b), true, nil
+}
+
 func defaultACMECache() string {
 	dir, err := os.UserCacheDir()
 	if err != nil {
@@ -113,6 +143,14 @@ func main() {
 		return
 	}
 
+	proxySecret, generated, err := resolveProxySecret(opts.proxySecretFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if generated {
+		log.Printf("pass-through proxy secret (generated): %s", proxySecret)
+	}
+
 	st := store.New()
 	st.StartJanitor(24*time.Hour, time.Hour, make(chan struct{}))
 	srv := &http.Server{
@@ -126,7 +164,7 @@ func main() {
 			log.Fatalf("loading TLS cert: %v", err)
 		}
 		srv.TLSConfig = cfg
-		srv.Handler = server.New(st, nil)
+		srv.Handler = server.New(st, nil, proxySecret)
 		log.Printf("listening on https://%s (supplied certificate)", opts.addr)
 		log.Fatal(srv.ListenAndServeTLS("", ""))
 
@@ -140,14 +178,14 @@ func main() {
 		srv.TLSConfig = cfg
 		// The server offers the CA certificate at /ca.pem so senders can
 		// test server certificate validation.
-		srv.Handler = server.New(st, pemBytes)
+		srv.Handler = server.New(st, pemBytes, proxySecret)
 		log.Printf("listening on https://%s (self-signed, hosts: %s; CA cert at /ca.pem)", opts.addr, hosts.String())
 		log.Fatal(srv.ListenAndServeTLS("", ""))
 
 	case len(opts.acmeDomains) > 0:
 		cfg, challengeHandler := tlsconf.ACME(opts.acmeDomains, opts.acmeEmail, opts.acmeCache, opts.acmeDirectory)
 		srv.TLSConfig = cfg
-		srv.Handler = server.New(st, nil)
+		srv.Handler = server.New(st, nil, proxySecret)
 		go func() {
 			httpSrv := &http.Server{
 				Addr:              opts.acmeHTTPAddr,
@@ -161,7 +199,7 @@ func main() {
 		log.Fatal(srv.ListenAndServeTLS("", ""))
 
 	default:
-		srv.Handler = server.New(st, nil)
+		srv.Handler = server.New(st, nil, proxySecret)
 		log.Printf("listening on http://%s", opts.addr)
 		log.Fatal(srv.ListenAndServe())
 	}

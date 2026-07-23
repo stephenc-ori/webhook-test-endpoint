@@ -62,6 +62,19 @@
         <label>Body <textarea name="respBody" rows="3">{"status":"success"}</textarea></label>
       </fieldset>
 
+      <fieldset>
+        <legend>Pass&#8209;through proxy</legend>
+        <label class="radio"><input type="checkbox" name="proxyEnabled"> Relay requests to another listener</label>
+        <div id="proxy-fields" class="sub-fields" hidden>
+          <label>Destination URL <input type="url" name="proxyURL" placeholder="https://example.com/webhook" autocomplete="off"></label>
+          <label>Server proxy secret <input type="password" name="proxySecret" autocomplete="off"></label>
+          <p class="hint">Every stored request (except rejected ones) is forwarded live.
+             Retained requests can also be re&#8209;delivered individually. Enabling this
+             requires the server's proxy secret (logged at startup or supplied via
+             <code>WEBHOOK_PROXY_SECRET</code> / <code>-proxy-secret-file</code>).</p>
+        </div>
+      </fieldset>
+
     </div>
     <div class="config-actions">
       <span id="config-msg" class="config-msg"></span>
@@ -76,6 +89,8 @@
       <span>Requests <span id="event-count" class="count-badge">0</span></span>
       <span class="pane-actions">
         <button id="follow-btn" class="btn btn-small toggle active" title="Automatically show the newest request as it arrives">Follow</button>
+        <button id="upload-btn" class="btn btn-small" title="Upload a .bru or raw body and deliver it to the proxy destination" hidden>Upload</button>
+        <input id="upload-input" type="file" accept=".bru,.json,.txt,application/json,text/plain" hidden>
         <button id="clear-btn" class="btn btn-small" title="Clear events here and on the server">Clear</button>
       </span>
     </div>
@@ -94,7 +109,12 @@
         <span id="d-method" class="method-badge"></span>
         <code id="d-path"></code>
         <span id="d-time" class="muted"></span>
+        <span class="detail-actions">
+          <button id="redeliver-btn" class="btn btn-small" title="Re-deliver this request to the proxy destination" hidden>Re-deliver</button>
+          <a id="download-btn" class="btn btn-small" title="Download this request as a Bruno .bru file">Download</a>
+        </span>
       </div>
+      <div id="deliver-msg" class="config-msg"></div>
       <div id="d-badges" class="detail-badges"></div>
       <div class="detail-meta">
         <span class="muted">From</span> <code id="d-remote"></code>

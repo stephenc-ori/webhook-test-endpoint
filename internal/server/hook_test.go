@@ -15,11 +15,13 @@ import (
 	"github.com/stephenc-ori/webhook-test-endpoint/internal/store"
 )
 
+const testSecret = "test-proxy-secret"
+
 func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *store.Endpoint) {
 	t.Helper()
 	st := store.New()
 	e := st.Create()
-	ts := httptest.NewServer(New(st, nil))
+	ts := httptest.NewServer(New(st, nil, testSecret))
 	t.Cleanup(ts.Close)
 	return ts, st, e
 }
@@ -480,7 +482,7 @@ func TestCAPEMRoute(t *testing.T) {
 
 	// With one it is served as a PEM download.
 	pem := []byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n")
-	ts2 := httptest.NewServer(New(store.New(), pem))
+	ts2 := httptest.NewServer(New(store.New(), pem, testSecret))
 	defer ts2.Close()
 	res2, err := http.Get(ts2.URL + "/ca.pem")
 	if err != nil {

@@ -332,6 +332,10 @@ h1, h2, h3 { font-weight: 600; }
   flex-wrap: wrap;
 }
 .detail-header code { font-size: 14px; }
+.detail-actions { margin-left: auto; display: flex; gap: 6px; }
+/* The download control is an <a> styled as a button. */
+a.btn { display: inline-block; text-decoration: none; line-height: 1.4; }
+#deliver-msg { min-height: 1em; margin: 8px 0 0; font-size: 13px; }
 .detail-badges { margin: 10px 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .badge {
   font-size: 12px;

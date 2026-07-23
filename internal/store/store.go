@@ -81,6 +81,11 @@ type Config struct {
 	RespStatus      int    `json:"respStatus"`
 	RespContentType string `json:"respContentType"`
 	RespBody        string `json:"respBody"`
+
+	// Pass-through proxy: when enabled, every stored, non-rejected event is
+	// relayed to ProxyURL, and retained events can be manually re-delivered.
+	ProxyEnabled bool   `json:"proxyEnabled"`
+	ProxyURL     string `json:"proxyURL"`
 }
 
 // DefaultConfig returns the config a fresh endpoint starts with.
@@ -129,6 +134,19 @@ func (e *Endpoint) Events() []Event {
 	out := make([]Event, len(e.events))
 	copy(out, e.events)
 	return out
+}
+
+// Event returns the retained event with the given ID and true, or a zero
+// Event and false if it is no longer retained.
+func (e *Endpoint) Event(id int64) (Event, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, ev := range e.events {
+		if ev.ID == id {
+			return ev, true
+		}
+	}
+	return Event{}, false
 }
 
 // Add assigns the event an ID, appends it to the ring buffer and notifies

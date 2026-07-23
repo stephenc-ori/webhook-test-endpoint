@@ -51,7 +51,8 @@ func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if authOK && sigOK {
-		e.Add(ev)
+		stored := e.Add(ev)
+		s.autoForward(cfg, stored)
 		writeConfigured(w, cfg)
 		return
 	}
@@ -59,7 +60,8 @@ func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 	reject := cfg.FailureMode == "reject_log" || cfg.FailureMode == "reject_silent"
 	ev.Rejected = reject
 	if cfg.FailureMode != "reject_silent" {
-		e.Add(ev)
+		stored := e.Add(ev)
+		s.autoForward(cfg, stored)
 	}
 	if !reject {
 		writeConfigured(w, cfg)

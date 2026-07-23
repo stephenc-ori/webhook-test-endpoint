@@ -74,6 +74,45 @@ Everything is configured per-endpoint from the **Settings** panel in the UI:
 - **Response** — the status code, content type and body returned to the
   sender on success. Defaults to `200` / `application/json` /
   `{"status":"success"}`.
+- **Pass-through proxy** — relay requests to another webhook listener. See
+  below.
+
+## Pass-through proxy
+
+An endpoint can double as a pass-through proxy to a real webhook listener.
+When enabled, every request the endpoint *stores* (i.e. accepted, or accepted
+under *Accept, but mark* — rejected and silently-dropped requests are never
+relayed) is forwarded live to the destination URL, method/headers/body intact.
+Connection-scoped headers (`Host`, `Content-Length`, …) are dropped and a
+`X-Forwarded-By: webhook-test-endpoint` marker is added. Delivery is
+fire-and-forget: the sender always gets the endpoint's configured response,
+and forward failures are logged, not surfaced.
+
+Beyond the live relay, from the request detail pane you can:
+
+- **Re-deliver** any retained request to the destination on demand.
+- **Download** a request as a [Bruno](https://www.usebruno.com) `.bru` file.
+- **Upload** a `.bru` file (or a raw body) and deliver it to the destination —
+  handy for replaying a saved payload without crafting `curl` by hand. Only
+  the method, headers and body are read from the `.bru`; the rest of Bruno's
+  feature set is ignored.
+
+Because the proxy turns the server into an outbound HTTP client (an SSRF
+vector on a public instance), the feature is gated by a **server secret**.
+Enabling the proxy, re-delivering and uploading all require it in the
+`X-Proxy-Secret` request header; the UI prompts for it in the Settings panel
+and remembers it for the browser session. The secret is resolved once at
+startup:
+
+1. the `WEBHOOK_PROXY_SECRET` environment variable, if set;
+2. otherwise the contents of the file named by `-proxy-secret-file`;
+3. otherwise a random secret is generated and logged to the console.
+
+```console
+$ WEBHOOK_PROXY_SECRET=hunter2 webhook-test-endpoint
+# or
+$ webhook-test-endpoint -proxy-secret-file /run/secrets/proxy-secret
+```
 
 ## TLS
 

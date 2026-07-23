@@ -14,6 +14,22 @@
   var selectedId = null;
   var bodyMode = "raw";   // "raw" | "json", reset per selected event
   var follow = true;      // auto-select the newest event as it arrives
+  var proxyOn = false;    // mirror of config.proxyEnabled, drives UI affordances
+
+  // The proxy secret is server-global and never stored in the endpoint config,
+  // so we keep it in sessionStorage and send it as a header when relaying.
+  function proxySecret() {
+    return sessionStorage.getItem("proxySecret") || "";
+  }
+  function setProxySecret(v) {
+    if (v) sessionStorage.setItem("proxySecret", v);
+    else sessionStorage.removeItem("proxySecret");
+  }
+  function proxyHeaders(extra) {
+    var h = extra || {};
+    h["X-Proxy-Secret"] = proxySecret();
+    return h;
+  }
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -122,12 +138,19 @@
   });
 
   // ----- detail pane -----
+  function updateRedeliverButton() {
+    var ev = selectedId != null ? byId[selectedId] : null;
+    $("redeliver-btn").hidden = !(proxyOn && ev);
+  }
+
   function renderDetail() {
     var ev = selectedId != null ? byId[selectedId] : null;
     $("detail-empty").hidden = !!ev;
     $("detail").hidden = !ev;
+    updateRedeliverButton();
     if (!ev) return;
 
+    $("download-btn").href = base + "api/events/" + ev.id + "/download";
     $("d-method").textContent = ev.method;
     $("d-method").className = "method-badge m-" + ev.method.toLowerCase();
     $("d-path").textContent = ev.path;
@@ -184,6 +207,53 @@
     });
   });
 
+  // ----- proxy re-delivery / upload -----
+  function showDeliverMsg(text, isError) {
+    var el = $("deliver-msg");
+    el.textContent = text;
+    el.className = "config-msg " + (isError ? "error" : "success");
+    if (!isError) setTimeout(function () {
+      if (el.textContent === text) el.textContent = "";
+    }, 4000);
+  }
+
+  // reportForward turns a forwardResult (or an error) into a user message.
+  function reportForward(promise, what) {
+    return promise.then(function (res) {
+      if (res.status === 403) { showDeliverMsg("Proxy secret required or incorrect — re-enter it in Settings.", true); return; }
+      if (res.status === 409) { showDeliverMsg("Proxy is not enabled for this endpoint.", true); return; }
+      return res.json().then(function (r) {
+        if (r.error) showDeliverMsg(what + " failed: " + r.error, true);
+        else showDeliverMsg(what + " → " + (r.statusText || r.status) + (r.ok ? "" : " (destination reported an error)"), !r.ok);
+      });
+    }).catch(function () { showDeliverMsg(what + " failed", true); });
+  }
+
+  $("redeliver-btn").addEventListener("click", function () {
+    if (selectedId == null) return;
+    showDeliverMsg("Re-delivering…", false);
+    reportForward(fetch(base + "api/events/" + selectedId + "/redeliver", {
+      method: "POST",
+      headers: proxyHeaders({})
+    }), "Re-delivery");
+  });
+
+  $("upload-btn").addEventListener("click", function () { $("upload-input").click(); });
+  $("upload-input").addEventListener("change", function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var isBru = /\.bru$/i.test(file.name);
+    showDeliverMsg("Delivering " + file.name + "…", false);
+    reportForward(file.text().then(function (text) {
+      return fetch(base + "api/deliver", {
+        method: "POST",
+        headers: proxyHeaders({ "Content-Type": isBru ? "text/plain" : (file.type || "application/octet-stream") }),
+        body: text
+      });
+    }), "Delivery");
+    e.target.value = ""; // allow re-selecting the same file
+  });
+
   // ----- config panel -----
   var form = $("config-form");
 
@@ -196,8 +266,16 @@
     $("basic-fields").hidden = mode !== "basic";
     $("bearer-fields").hidden = mode !== "bearer";
     $("sig-fields").hidden = !form.elements.sigEnabled.checked;
+    $("proxy-fields").hidden = !form.elements.proxyEnabled.checked;
   }
   form.addEventListener("change", syncSubFields);
+
+  // Reflect the saved proxy state into the parts of the UI outside the form.
+  function applyProxyState(cfg) {
+    proxyOn = !!cfg.proxyEnabled;
+    $("upload-btn").hidden = !proxyOn;
+    updateRedeliverButton();
+  }
 
   function fillForm(cfg) {
     form.elements.authMode.value = cfg.authMode || "none";
@@ -211,6 +289,10 @@
     form.elements.respStatus.value = cfg.respStatus || 200;
     form.elements.respContentType.value = cfg.respContentType || "application/json";
     form.elements.respBody.value = cfg.respBody != null ? cfg.respBody : '{"status":"success"}';
+    form.elements.proxyEnabled.checked = !!cfg.proxyEnabled;
+    form.elements.proxyURL.value = cfg.proxyURL || "";
+    form.elements.proxySecret.value = proxySecret();
+    applyProxyState(cfg);
     syncSubFields();
   }
 
@@ -227,11 +309,15 @@
       failureMode: form.elements.failureMode.value,
       respStatus: Number(form.elements.respStatus.value),
       respContentType: form.elements.respContentType.value,
-      respBody: form.elements.respBody.value
+      respBody: form.elements.respBody.value,
+      proxyEnabled: form.elements.proxyEnabled.checked,
+      proxyURL: form.elements.proxyURL.value
     };
+    // Persist the secret locally so re-delivery/upload can reuse it.
+    setProxySecret(form.elements.proxySecret.value);
     fetch(base + "api/config", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: proxyHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(cfg)
     }).then(function (res) {
       if (res.ok) {
