@@ -51,6 +51,7 @@ func New(st *store.Store, caPEM []byte, proxySecret string) *Server {
 	s.mux.HandleFunc("GET /ca.pem", s.handleCAPEM)
 	s.mux.HandleFunc("GET /{id}/{$}", s.handleApp)
 	s.mux.HandleFunc("/{id}/hook", s.handleHook)
+	s.mux.HandleFunc("/{id}/hook/{subpath...}", s.handleHookSubpath)
 	s.mux.HandleFunc("GET /{id}/api/events", s.handleEvents)
 	s.mux.HandleFunc("DELETE /{id}/api/events", s.handleClearEvents)
 	s.mux.HandleFunc("GET /{id}/api/events/{eid}/download", s.handleDownloadEvent)
@@ -218,10 +219,11 @@ func (s *Server) handleDownloadEvent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	hookURL := "https://" + r.Host + "/" + e.ID + "/hook"
+	scheme := "https://"
 	if r.TLS == nil {
-		hookURL = "http://" + r.Host + "/" + e.ID + "/hook"
+		scheme = "http://"
 	}
+	hookURL := scheme + r.Host + "/" + e.ID + "/hook" + ev.Subpath
 	name := eventName(e.ID, ev)
 	doc := encodeBruno(name, hookURL, withoutHopHeaders(messageFromEvent(ev)))
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -248,7 +250,7 @@ func (s *Server) handleRedeliver(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	res := s.forward(cfg, ev.Method, ev.Body, ev.Headers)
+	res := s.forward(cfg, ev.Subpath, ev.Method, ev.Body, ev.Headers)
 	e.Touch()
 	writeJSON(w, res)
 }
@@ -284,7 +286,7 @@ func (s *Server) handleDeliver(w http.ResponseWriter, r *http.Request) {
 		}
 		msg = message{Method: http.MethodPost, Headers: http.Header{"Content-Type": {ct}}, Body: string(raw)}
 	}
-	res := s.forward(cfg, msg.Method, msg.Body, msg.Headers)
+	res := s.forward(cfg, "", msg.Method, msg.Body, msg.Headers)
 	e.Touch()
 	writeJSON(w, res)
 }

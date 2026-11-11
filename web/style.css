@@ -277,6 +277,7 @@ h1, h2, h3 { font-weight: 600; }
 }
 .event-item.rejected { opacity: 0.75; }
 .event-time { color: var(--muted); font-size: 12px; }
+.event-subpath { font-family: ui-monospace, monospace; font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .event-status { margin-left: auto; display: flex; align-items: center; gap: 5px; }
 
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }

@@ -74,6 +74,11 @@ Everything is configured per-endpoint from the **Settings** panel in the UI:
 - **Response** — the status code, content type and body returned to the
   sender on success. Defaults to `200` / `application/json` /
   `{"status":"success"}`.
+- **Subpaths** — off by default. When on, the endpoint also accepts requests
+  to `/{id}/hook/{subpath}`, e.g. `/{id}/hook/github/push`. The UI shows the
+  subpath of each request. When off, a request to a subpath gets a `404` and
+  the server does not record it. The server rejects a subpath that holds an
+  encoded `.` or `..` segment with a `400`.
 - **Pass-through proxy** — relay requests to another webhook listener. See
   below.
 
@@ -84,7 +89,17 @@ When enabled, every request the endpoint *stores* (i.e. accepted, or accepted
 under *Accept, but mark* — rejected and silently-dropped requests are never
 relayed) is forwarded live to the destination URL, method/headers/body intact.
 Connection-scoped headers (`Host`, `Content-Length`, …) are dropped and a
-`X-Forwarded-By: webhook-test-endpoint` marker is added. Delivery is
+`X-Forwarded-By: webhook-test-endpoint` marker is added. When the request
+used a subpath, the proxy appends the subpath to the path of the destination
+URL and keeps the query of the destination URL:
+
+| Destination URL | Request | Proxy sends to |
+|---|---|---|
+| `https://example.com/in?k=v` | `/{id}/hook` | `https://example.com/in?k=v` |
+| `https://example.com/in?k=v` | `/{id}/hook/github/push` | `https://example.com/in/github/push?k=v` |
+
+Re-delivery uses the subpath of the stored request. An upload does not use a
+subpath. Delivery is
 fire-and-forget: the sender always gets the endpoint's configured response,
 and forward failures are logged, not surfaced.
 

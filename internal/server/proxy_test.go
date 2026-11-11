@@ -22,6 +22,7 @@ type destination struct {
 }
 
 type receivedReq struct {
+	path   string // request URI as the destination saw it
 	method string
 	body   string
 	header http.Header
@@ -32,7 +33,7 @@ func newDestination(t *testing.T) *destination {
 	d := &destination{got: make(chan *receivedReq, 8), status: http.StatusOK}
 	d.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		d.got <- &receivedReq{method: r.Method, body: string(b), header: r.Header.Clone()}
+		d.got <- &receivedReq{path: r.URL.RequestURI(), method: r.Method, body: string(b), header: r.Header.Clone()}
 		w.WriteHeader(d.status)
 	}))
 	t.Cleanup(d.Close)

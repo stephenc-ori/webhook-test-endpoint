@@ -63,6 +63,12 @@
       </fieldset>
 
       <fieldset>
+        <legend>Subpaths</legend>
+        <label class="radio"><input type="checkbox" name="subpathsEnabled"> Accept requests to subpaths of the hook URL</label>
+        <p class="hint">Example: <code>/{id}/hook/github/push</code>. When off, a subpath gets a 404 and is not logged.</p>
+      </fieldset>
+
+      <fieldset>
         <legend>Pass&#8209;through proxy</legend>
         <label class="radio"><input type="checkbox" name="proxyEnabled"> Relay requests to another listener</label>
         <div id="proxy-fields" class="sub-fields" hidden>

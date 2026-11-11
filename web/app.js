@@ -119,6 +119,15 @@
         '<span class="event-time">' + fmtTime(ev.receivedAt) + "</span>" +
         '<span class="event-status">' + statusDots(ev) +
         (ev.rejected ? '<span class="rejected-tag">rejected</span>' : "") + "</span>";
+      if (ev.subpath) {
+        // Show the subpath so requests to different subpaths are easy to tell
+        // apart. textContent keeps the sender-controlled path out of the HTML.
+        var sp = document.createElement("span");
+        sp.className = "event-subpath";
+        sp.textContent = ev.subpath;
+        sp.title = ev.subpath;
+        li.insertBefore(sp, li.querySelector(".event-time"));
+      }
       li.addEventListener("click", onSelect);
       list.appendChild(li);
     }
@@ -289,6 +298,7 @@
     form.elements.respStatus.value = cfg.respStatus || 200;
     form.elements.respContentType.value = cfg.respContentType || "application/json";
     form.elements.respBody.value = cfg.respBody != null ? cfg.respBody : '{"status":"success"}';
+    form.elements.subpathsEnabled.checked = !!cfg.subpathsEnabled;
     form.elements.proxyEnabled.checked = !!cfg.proxyEnabled;
     form.elements.proxyURL.value = cfg.proxyURL || "";
     form.elements.proxySecret.value = proxySecret();
@@ -310,6 +320,7 @@
       respStatus: Number(form.elements.respStatus.value),
       respContentType: form.elements.respContentType.value,
       respBody: form.elements.respBody.value,
+      subpathsEnabled: form.elements.subpathsEnabled.checked,
       proxyEnabled: form.elements.proxyEnabled.checked,
       proxyURL: form.elements.proxyURL.value
     };

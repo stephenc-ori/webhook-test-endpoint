@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/stephenc-ori/webhook-test-endpoint/internal/store"
@@ -39,13 +40,19 @@ func proxyEnabled(cfg store.Config) bool {
 	return cfg.ProxyEnabled && strings.TrimSpace(cfg.ProxyURL) != ""
 }
 
-// forward relays a message to cfg.ProxyURL and reports the outcome. It never
-// returns an error to the caller — a failed delivery is a result, not a fault.
-func (s *Server) forward(cfg store.Config, method, body string, headers http.Header) forwardResult {
+// forward relays a message to cfg.ProxyURL and reports the outcome. A non-empty
+// subpath (escaped, with a leading "/") is appended to the destination path.
+// It never returns an error to the caller — a failed delivery is a result, not
+// a fault.
+func (s *Server) forward(cfg store.Config, subpath, method, body string, headers http.Header) forwardResult {
 	if method == "" {
 		method = http.MethodPost
 	}
-	req, err := http.NewRequest(method, cfg.ProxyURL, strings.NewReader(body))
+	dest, err := destinationURL(cfg.ProxyURL, subpath)
+	if err != nil {
+		return forwardResult{Error: "invalid destination URL: " + err.Error()}
+	}
+	req, err := http.NewRequest(method, dest, strings.NewReader(body))
 	if err != nil {
 		return forwardResult{Error: "invalid destination URL: " + err.Error()}
 	}
@@ -72,6 +79,19 @@ func (s *Server) forward(cfg store.Config, method, body string, headers http.Hea
 	}
 }
 
+// destinationURL appends the escaped subpath to the path of base. The query
+// string of base is kept.
+func destinationURL(base, subpath string) (string, error) {
+	if subpath == "" {
+		return base, nil
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", err
+	}
+	return u.JoinPath(subpath).String(), nil
+}
+
 // autoForward relays a freshly stored event to the destination in the
 // background when the endpoint is configured to proxy. Rejected events are
 // never forwarded. Failures are logged, not surfaced to the sender.
@@ -79,10 +99,13 @@ func (s *Server) autoForward(cfg store.Config, ev store.Event) {
 	if ev.Rejected || !proxyEnabled(cfg) {
 		return
 	}
-	dest := cfg.ProxyURL
+	dest, err := destinationURL(cfg.ProxyURL, ev.Subpath)
+	if err != nil {
+		dest = cfg.ProxyURL
+	}
 	msg := messageFromEvent(ev)
 	go func() {
-		res := s.forward(cfg, msg.Method, msg.Body, msg.Headers)
+		res := s.forward(cfg, ev.Subpath, msg.Method, msg.Body, msg.Headers)
 		if res.Error != "" {
 			log.Printf("proxy forward to %s failed: %s", dest, res.Error)
 			return
