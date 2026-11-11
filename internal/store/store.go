@@ -55,6 +55,7 @@ type Event struct {
 	ReceivedAt    time.Time   `json:"receivedAt"`
 	Method        string      `json:"method"`
 	Path          string      `json:"path"`
+	Subpath       string      `json:"subpath,omitempty"` // escaped path after /{id}/hook, e.g. "/github/push"
 	Headers       http.Header `json:"headers"`
 	Body          string      `json:"body"`
 	BodyTruncated bool        `json:"bodyTruncated"`
@@ -81,6 +82,10 @@ type Config struct {
 	RespStatus      int    `json:"respStatus"`
 	RespContentType string `json:"respContentType"`
 	RespBody        string `json:"respBody"`
+
+	// SubpathsEnabled makes /{id}/hook/{subpath...} accept requests too.
+	// When false, a request to a subpath gets a 404 and is not recorded.
+	SubpathsEnabled bool `json:"subpathsEnabled"`
 
 	// Pass-through proxy: when enabled, every stored, non-rejected event is
 	// relayed to ProxyURL, and retained events can be manually re-delivered.

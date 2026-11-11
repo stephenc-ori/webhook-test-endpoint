@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -22,7 +23,49 @@ func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 	if e == nil {
 		return
 	}
+	s.receive(w, r, e, e.Config(), "")
+}
+
+// handleHookSubpath receives requests to /{id}/hook/{subpath...}. The endpoint
+// accepts them only when its config enables subpaths; otherwise the request
+// gets a 404 and is not recorded.
+func (s *Server) handleHookSubpath(w http.ResponseWriter, r *http.Request) {
+	e := s.endpoint(w, r)
+	if e == nil {
+		return
+	}
 	cfg := e.Config()
+	if !cfg.SubpathsEnabled {
+		http.NotFound(w, r)
+		return
+	}
+	// Use the escaped path so that encoded characters (e.g. %2F) survive
+	// the relay to the proxy destination.
+	// A sender can encode the ID or "hook" (e.g. h%6Fok); ServeMux still routes
+	// it here, but the escaped prefix does not match. Reject it.
+	sub, ok := strings.CutPrefix(r.URL.EscapedPath(), "/"+e.ID+"/hook")
+	if !ok || !strings.HasPrefix(sub, "/") || hasDotSegment(sub) {
+		http.Error(w, "invalid subpath", http.StatusBadRequest)
+		return
+	}
+	s.receive(w, r, e, cfg, sub)
+}
+
+// hasDotSegment reports whether the escaped path holds a "." or ".." segment
+// after unescaping. ServeMux cleans literal dot segments, but encoded ones
+// (%2e%2e) get through and would escape the proxy destination path.
+func hasDotSegment(escaped string) bool {
+	for _, seg := range strings.Split(escaped, "/") {
+		if u, err := url.PathUnescape(seg); err != nil || u == "." || u == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// receive records a webhook request and writes the configured response.
+// subpath is the escaped path after /{id}/hook, or "" for the bare hook.
+func (s *Server) receive(w http.ResponseWriter, r *http.Request, e *store.Endpoint, cfg store.Config, subpath string) {
 
 	body, truncated := readBody(w, r)
 
@@ -30,6 +73,7 @@ func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 		ReceivedAt:    time.Now(),
 		Method:        r.Method,
 		Path:          r.URL.RequestURI(),
+		Subpath:       subpath,
 		Headers:       r.Header.Clone(),
 		Body:          string(body),
 		BodyTruncated: truncated,
