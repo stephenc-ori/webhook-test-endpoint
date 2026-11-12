@@ -63,6 +63,23 @@ type Event struct {
 	AuthResult    string      `json:"authResult"` // "n/a" | "ok" | "failed"
 	SigResult     string      `json:"sigResult"`  // "n/a" | "ok" | "failed"
 	Rejected      bool        `json:"rejected"`
+
+	// Proxy is what the pass-through proxy destination returned. It is nil
+	// when the server did not relay the event.
+	Proxy *ProxyResponse `json:"proxy,omitempty"`
+}
+
+// ProxyResponse records the relay of an event to the proxy destination.
+type ProxyResponse struct {
+	URL           string      `json:"url"`
+	Pending       bool        `json:"pending,omitempty"` // relay still in progress
+	Status        int         `json:"status,omitempty"`
+	StatusText    string      `json:"statusText,omitempty"`
+	Headers       http.Header `json:"headers,omitempty"`
+	Body          string      `json:"body,omitempty"`
+	BodyTruncated bool        `json:"bodyTruncated,omitempty"`
+	Error         string      `json:"error,omitempty"`
+	DurationMs    int64       `json:"durationMs"`
 }
 
 // Config controls how an endpoint authenticates and responds.
@@ -91,6 +108,10 @@ type Config struct {
 	// relayed to ProxyURL, and retained events can be manually re-delivered.
 	ProxyEnabled bool   `json:"proxyEnabled"`
 	ProxyURL     string `json:"proxyURL"`
+	// ProxyConfiguredResponse makes the endpoint send the configured response
+	// (RespStatus etc.) and relay in the background. When false (the default),
+	// the endpoint waits for the destination and sends its response instead.
+	ProxyConfiguredResponse bool `json:"proxyConfiguredResponse"`
 }
 
 // DefaultConfig returns the config a fresh endpoint starts with.
@@ -165,19 +186,55 @@ func (e *Endpoint) Add(ev Event) Event {
 		e.events = e.events[len(e.events)-MaxEvents:]
 	}
 	e.lastActive = time.Now()
+	subs := e.subscribersLocked()
+	e.mu.Unlock()
+
+	notify(subs, ev)
+	return ev
+}
+
+// SetProxyResponse records the proxy response of a retained event and sends
+// the updated event to subscribers. It does nothing if the event is no longer
+// retained.
+func (e *Endpoint) SetProxyResponse(id int64, p ProxyResponse) {
+	e.mu.Lock()
+	var updated *Event
+	for i := range e.events {
+		if e.events[i].ID == id {
+			e.events[i].Proxy = &p
+			updated = &e.events[i]
+			break
+		}
+	}
+	if updated == nil {
+		e.mu.Unlock()
+		return
+	}
+	ev := *updated
+	subs := e.subscribersLocked()
+	e.mu.Unlock()
+
+	notify(subs, ev)
+}
+
+// subscribersLocked returns a snapshot of the subscribers. The caller must
+// hold e.mu.
+func (e *Endpoint) subscribersLocked() []chan Event {
 	subs := make([]chan Event, 0, len(e.subs))
 	for ch := range e.subs {
 		subs = append(subs, ch)
 	}
-	e.mu.Unlock()
+	return subs
+}
 
+// notify sends ev to each subscriber without blocking.
+func notify(subs []chan Event, ev Event) {
 	for _, ch := range subs {
 		select {
 		case ch <- ev:
 		default: // slow subscriber: drop rather than block the hook
 		}
 	}
-	return ev
 }
 
 // ClearEvents discards all retained events. The ID counter keeps counting so

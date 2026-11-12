@@ -74,6 +74,8 @@ Everything is configured per-endpoint from the **Settings** panel in the UI:
 - **Response** — the status code, content type and body returned to the
   sender on success. Defaults to `200` / `application/json` /
   `{"status":"success"}`.
+  When the pass-through proxy is on, the sender gets the response of the
+  destination instead, unless you turn that off.
 - **Subpaths** — off by default. When on, the endpoint also accepts requests
   to `/{id}/hook/{subpath}`, e.g. `/{id}/hook/github/push`. The UI shows the
   subpath of each request. When off, a request to a subpath gets a `404` and
@@ -99,9 +101,23 @@ URL and keeps the query of the destination URL:
 | `https://example.com/in?k=v` | `/{id}/hook/github/push` | `https://example.com/in/github/push?k=v` |
 
 Re-delivery uses the subpath of the stored request. An upload does not use a
-subpath. Delivery is
-fire-and-forget: the sender always gets the endpoint's configured response,
-and forward failures are logged, not surfaced.
+subpath.
+
+The **Send the destination's response to the sender** setting controls what
+the sender gets back. It is on by default.
+
+| Setting | Sender gets | Relay |
+|---|---|---|
+| On (default) | Status, headers and body of the destination. `502` if the destination cannot be reached. | Synchronous: the sender waits for the destination. |
+| Off | The configured response. | In the background. The server logs failures. |
+
+Rejected requests always get `401`/`403`, and the server does not relay them.
+
+The inspector shows the response of the destination for each relayed request:
+status, time taken, headers and body (the server keeps the first 1 MiB). The
+request list shows the status next to each request, e.g. `→ 201`. While the
+destination response goes to the sender, the **Response** settings are not
+used, so the UI disables them.
 
 Beyond the live relay, from the request detail pane you can:
 

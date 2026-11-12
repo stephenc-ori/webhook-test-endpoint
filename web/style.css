@@ -184,6 +184,7 @@ h1, h2, h3 { font-weight: 600; }
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 16px;
 }
+.config-panel fieldset:disabled label { opacity: 0.5; }
 .config-panel fieldset {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -348,6 +349,11 @@ a.btn { display: inline-block; text-decoration: none; line-height: 1.4; }
 .badge.bad { color: var(--bad); border-color: var(--bad); }
 .badge.warn { color: var(--warn); border-color: var(--warn); }
 .detail-meta { margin: 6px 0 14px; }
+.proxy-tag { font-size: 11px; font-family: ui-monospace, monospace; }
+.proxy-tag.ok { color: var(--ok); }
+.proxy-tag.bad { color: var(--bad); }
+.proxy-tag.warn { color: var(--warn); }
+#d-proxy-time { font-size: 12px; align-self: center; }
 
 .detail-pane h3 {
   margin: 18px 0 8px;
