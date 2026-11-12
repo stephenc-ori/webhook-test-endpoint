@@ -55,8 +55,10 @@
         <label class="radio"><input type="radio" name="failureMode" value="accept_mark"> Accept, but mark as failed</label>
       </fieldset>
 
-      <fieldset>
+      <fieldset id="resp-fields">
         <legend>Response</legend>
+        <p id="resp-relayed" class="hint" hidden>Not used: the sender gets the response of the
+           proxy destination. Turn off <em>Send the destination's response</em> to use it.</p>
         <label>Status code <input type="number" name="respStatus" min="100" max="599" value="200"></label>
         <label>Content type <input type="text" name="respContentType" value="application/json"></label>
         <label>Body <textarea name="respBody" rows="3">{"status":"success"}</textarea></label>
@@ -73,7 +75,11 @@
         <label class="radio"><input type="checkbox" name="proxyEnabled"> Relay requests to another listener</label>
         <div id="proxy-fields" class="sub-fields" hidden>
           <label>Destination URL <input type="url" name="proxyURL" placeholder="https://example.com/webhook" autocomplete="off"></label>
+          <label class="radio"><input type="checkbox" name="proxyRelayResponse" checked> Send the destination's response to the sender</label>
           <label>Server proxy secret <input type="password" name="proxySecret" autocomplete="off"></label>
+          <p class="hint">When on, the sender waits for the destination and gets its status,
+             headers and body. If the destination cannot be reached, the sender gets a 502.
+             When off, the sender gets the configured response at once.</p>
           <p class="hint">Every stored request (except rejected ones) is forwarded live.
              Retained requests can also be re&#8209;delivered individually. Enabling this
              requires the server's proxy secret (logged at startup or supplied via
@@ -134,6 +140,13 @@
         </span>
       </h3>
       <pre id="d-body" class="body-view"></pre>
+      <div id="d-proxy" hidden>
+        <h3>Proxy response</h3>
+        <div class="detail-badges"><span id="d-proxy-status" class="badge"></span><span id="d-proxy-time" class="muted"></span></div>
+        <div class="detail-meta"><span class="muted">To</span> <code id="d-proxy-url"></code></div>
+        <table class="headers-table"><tbody id="d-proxy-headers"></tbody></table>
+        <pre id="d-proxy-body" class="body-view"></pre>
+      </div>
     </div>
   </section>
 </main>

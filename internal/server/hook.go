@@ -63,7 +63,8 @@ func hasDotSegment(escaped string) bool {
 	return false
 }
 
-// receive records a webhook request and writes the configured response.
+// receive records a webhook request and writes the response: the configured
+// one, or the response of the proxy destination (see respond).
 // subpath is the escaped path after /{id}/hook, or "" for the bare hook.
 func (s *Server) receive(w http.ResponseWriter, r *http.Request, e *store.Endpoint, cfg store.Config, subpath string) {
 
@@ -95,21 +96,18 @@ func (s *Server) receive(w http.ResponseWriter, r *http.Request, e *store.Endpoi
 	}
 
 	if authOK && sigOK {
-		stored := e.Add(ev)
-		s.autoForward(cfg, stored)
-		writeConfigured(w, cfg)
+		s.respond(w, cfg, e, ev)
 		return
 	}
 
-	reject := cfg.FailureMode == "reject_log" || cfg.FailureMode == "reject_silent"
-	ev.Rejected = reject
-	if cfg.FailureMode != "reject_silent" {
-		stored := e.Add(ev)
-		s.autoForward(cfg, stored)
-	}
-	if !reject {
-		writeConfigured(w, cfg)
+	// Rejected events are stored (unless silent) but never relayed.
+	switch cfg.FailureMode {
+	case "accept_mark":
+		s.respond(w, cfg, e, ev)
 		return
+	case "reject_log":
+		ev.Rejected = true
+		e.Add(ev)
 	}
 	if !authOK {
 		switch cfg.AuthMode {

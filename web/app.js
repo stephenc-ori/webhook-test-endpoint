@@ -47,13 +47,21 @@
   // ----- event list -----
   function mergeEvents(list) {
     var added = false;
+    var changed = false;
     list.forEach(function (ev) {
-      if (!byId[ev.id]) {
+      var old = byId[ev.id];
+      if (!old) {
         byId[ev.id] = ev;
         events.push(ev);
         added = true;
+      } else if (JSON.stringify(old.proxy) !== JSON.stringify(ev.proxy)) {
+        // The server sends the event again when the proxy relay finishes.
+        events[events.indexOf(old)] = ev;
+        byId[ev.id] = ev;
+        changed = true;
       }
     });
+    if (changed && !added) render();
     if (added) {
       events.sort(function (a, b) { return a.id - b.id; });
       if (follow && events.length) {
@@ -90,8 +98,21 @@
     return d.toLocaleTimeString();
   }
 
+  // proxyBadge returns the class and text of the badge for a proxy response.
+  function proxyBadge(p) {
+    if (p.pending) return { cls: "warn", text: "proxy pending" };
+    if (p.error && !p.status) return { cls: "bad", text: "proxy failed" };
+    var ok = p.status >= 200 && p.status < 400 && !p.error;
+    return { cls: ok ? "ok" : "bad", text: "proxy " + p.status };
+  }
+
   function statusDots(ev) {
     var html = "";
+    if (ev.proxy) {
+      var pb = proxyBadge(ev.proxy);
+      html += '<span class="proxy-tag ' + pb.cls + '" title="Response from the proxy destination">' +
+              pb.text.replace("proxy ", "\u2192 ") + "</span>";
+    }
     if (ev.authResult !== "n/a") {
       html += '<span class="dot ' + (ev.authResult === "ok" ? "ok" : "bad") +
               '" title="Auth: ' + ev.authResult + '"></span>';
@@ -177,10 +198,24 @@
     if (ev.bodyTruncated) badges += '<span class="badge warn">body truncated at 1 MiB</span>';
     $("d-badges").innerHTML = badges;
 
-    var tbody = $("d-headers");
+    fillHeaders($("d-headers"), ev.headers);
+
+    var body = ev.body || "";
+    var pretty = null;
+    try { pretty = JSON.stringify(JSON.parse(body), null, 2); } catch (e) { /* not JSON */ }
+    $("body-json").disabled = pretty === null;
+    var mode = pretty === null ? "raw" : bodyMode;
+    $("body-raw").classList.toggle("active", mode === "raw");
+    $("body-json").classList.toggle("active", mode === "json");
+    $("d-body").textContent = body === "" ? "(empty body)" : (mode === "json" ? pretty : body);
+
+    renderProxy(ev.proxy, bodyMode);
+  }
+
+  function fillHeaders(tbody, headers) {
     tbody.innerHTML = "";
-    Object.keys(ev.headers || {}).sort().forEach(function (name) {
-      ev.headers[name].forEach(function (value) {
+    Object.keys(headers || {}).sort().forEach(function (name) {
+      headers[name].forEach(function (value) {
         var tr = document.createElement("tr");
         var th = document.createElement("td");
         th.className = "hname";
@@ -192,15 +227,35 @@
         tbody.appendChild(tr);
       });
     });
+  }
 
-    var body = ev.body || "";
-    var pretty = null;
-    try { pretty = JSON.stringify(JSON.parse(body), null, 2); } catch (e) { /* not JSON */ }
-    $("body-json").disabled = pretty === null;
-    var mode = pretty === null ? "raw" : bodyMode;
-    $("body-raw").classList.toggle("active", mode === "raw");
-    $("body-json").classList.toggle("active", mode === "json");
-    $("d-body").textContent = body === "" ? "(empty body)" : (mode === "json" ? pretty : body);
+  // renderProxy shows what the proxy destination returned. mode is the body
+  // view mode the user picked ("raw" or "json"); the response body follows it.
+  function renderProxy(p, mode) {
+    $("d-proxy").hidden = !p;
+    if (!p) return;
+    var pb = proxyBadge(p);
+    var status = $("d-proxy-status");
+    status.className = "badge " + pb.cls;
+    status.textContent = p.pending ? "pending" : (p.statusText || (p.status ? String(p.status) : "failed"));
+    $("d-proxy-time").textContent = p.pending ? "" : p.durationMs + " ms";
+    $("d-proxy-url").textContent = p.url;
+    fillHeaders($("d-proxy-headers"), p.headers);
+
+    var text;
+    if (p.pending) text = "(waiting for the destination)";
+    else if (p.error && !p.status) text = p.error;
+    else {
+      var body = p.body || "";
+      var pretty = null;
+      if (mode === "json") {
+        try { pretty = JSON.stringify(JSON.parse(body), null, 2); } catch (e) { /* not JSON */ }
+      }
+      text = body === "" ? "(empty body)" : (pretty || body);
+      if (p.bodyTruncated) text += "\n\n(truncated at 1 MiB)";
+      if (p.error) text += "\n\n" + p.error;
+    }
+    $("d-proxy-body").textContent = text;
   }
 
   $("body-raw").addEventListener("click", function () { bodyMode = "raw"; renderDetail(); });
@@ -276,6 +331,12 @@
     $("bearer-fields").hidden = mode !== "bearer";
     $("sig-fields").hidden = !form.elements.sigEnabled.checked;
     $("proxy-fields").hidden = !form.elements.proxyEnabled.checked;
+    // The configured response is not used while the proxy relays the response
+    // of the destination. A disabled fieldset still keeps its values, and the
+    // submit handler reads them, so a save does not lose them.
+    var relayed = form.elements.proxyEnabled.checked && form.elements.proxyRelayResponse.checked;
+    $("resp-fields").disabled = relayed;
+    $("resp-relayed").hidden = !relayed;
   }
   form.addEventListener("change", syncSubFields);
 
@@ -301,6 +362,7 @@
     form.elements.subpathsEnabled.checked = !!cfg.subpathsEnabled;
     form.elements.proxyEnabled.checked = !!cfg.proxyEnabled;
     form.elements.proxyURL.value = cfg.proxyURL || "";
+    form.elements.proxyRelayResponse.checked = !cfg.proxyConfiguredResponse;
     form.elements.proxySecret.value = proxySecret();
     applyProxyState(cfg);
     syncSubFields();
@@ -322,7 +384,8 @@
       respBody: form.elements.respBody.value,
       subpathsEnabled: form.elements.subpathsEnabled.checked,
       proxyEnabled: form.elements.proxyEnabled.checked,
-      proxyURL: form.elements.proxyURL.value
+      proxyURL: form.elements.proxyURL.value,
+      proxyConfiguredResponse: !form.elements.proxyRelayResponse.checked
     };
     // Persist the secret locally so re-delivery/upload can reuse it.
     setProxySecret(form.elements.proxySecret.value);

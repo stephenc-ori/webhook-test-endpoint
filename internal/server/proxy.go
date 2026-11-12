@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/stephenc-ori/webhook-test-endpoint/internal/store"
 )
@@ -45,28 +47,7 @@ func proxyEnabled(cfg store.Config) bool {
 // It never returns an error to the caller — a failed delivery is a result, not
 // a fault.
 func (s *Server) forward(cfg store.Config, subpath, method, body string, headers http.Header) forwardResult {
-	if method == "" {
-		method = http.MethodPost
-	}
-	dest, err := destinationURL(cfg.ProxyURL, subpath)
-	if err != nil {
-		return forwardResult{Error: "invalid destination URL: " + err.Error()}
-	}
-	req, err := http.NewRequest(method, dest, strings.NewReader(body))
-	if err != nil {
-		return forwardResult{Error: "invalid destination URL: " + err.Error()}
-	}
-	for name, vals := range headers {
-		if _, skip := hopByHop[http.CanonicalHeaderKey(name)]; skip {
-			continue
-		}
-		for _, v := range vals {
-			req.Header.Add(name, v)
-		}
-	}
-	req.Header.Set("X-Forwarded-By", "webhook-test-endpoint")
-
-	res, err := s.proxyClient.Do(req)
+	res, err := s.send(cfg, subpath, method, body, headers)
 	if err != nil {
 		return forwardResult{Error: err.Error()}
 	}
@@ -77,6 +58,129 @@ func (s *Server) forward(cfg store.Config, subpath, method, body string, headers
 		Status:     res.StatusCode,
 		StatusText: res.Status,
 	}
+}
+
+// send relays a message to cfg.ProxyURL plus subpath and returns the response
+// of the destination. The caller must close the response body.
+func (s *Server) send(cfg store.Config, subpath, method, body string, headers http.Header) (*http.Response, error) {
+	if method == "" {
+		method = http.MethodPost
+	}
+	dest, err := destinationURL(cfg.ProxyURL, subpath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid destination URL: %w", err)
+	}
+	req, err := http.NewRequest(method, dest, strings.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("invalid destination URL: %w", err)
+	}
+	copyHeaders(req.Header, headers)
+	req.Header.Set("X-Forwarded-By", "webhook-test-endpoint")
+	return s.proxyClient.Do(req)
+}
+
+// copyHeaders adds all headers of src to dst, except connection-scoped ones.
+func copyHeaders(dst, src http.Header) {
+	for name, vals := range src {
+		if _, skip := hopByHop[http.CanonicalHeaderKey(name)]; skip {
+			continue
+		}
+		for _, v := range vals {
+			dst.Add(name, v)
+		}
+	}
+}
+
+// respond stores an accepted event and writes the response. Without a proxy,
+// the sender gets the configured response. With a proxy, the server records
+// the response of the destination on the event. The sender gets that response
+// too, unless cfg.ProxyConfiguredResponse is set.
+func (s *Server) respond(w http.ResponseWriter, cfg store.Config, e *store.Endpoint, ev store.Event) {
+	if !proxyEnabled(cfg) {
+		e.Add(ev)
+		writeConfigured(w, cfg)
+		return
+	}
+	ev.Proxy = &store.ProxyResponse{URL: logDest(cfg, ev), Pending: true}
+	stored := e.Add(ev)
+	if cfg.ProxyConfiguredResponse {
+		go s.relay(nil, cfg, e, stored)
+		writeConfigured(w, cfg)
+		return
+	}
+	s.relay(w, cfg, e, stored)
+}
+
+// relay sends a stored event to the destination and records the response on
+// the event. When w is not nil, relay also writes the response of the
+// destination to w, or a 502 if the destination cannot be reached.
+func (s *Server) relay(w http.ResponseWriter, cfg store.Config, e *store.Endpoint, ev store.Event) {
+	dest := logDest(cfg, ev)
+	start := time.Now()
+	pr := store.ProxyResponse{URL: dest}
+	defer func() {
+		pr.DurationMs = time.Since(start).Milliseconds()
+		e.SetProxyResponse(ev.ID, pr)
+	}()
+
+	msg := messageFromEvent(ev)
+	res, err := s.send(cfg, ev.Subpath, msg.Method, msg.Body, msg.Headers)
+	if err != nil {
+		pr.Error = err.Error()
+		log.Printf("proxy relay to %s failed: %v", dest, err)
+		if w != nil {
+			http.Error(w, "proxy destination failed: "+err.Error(), http.StatusBadGateway)
+		}
+		return
+	}
+	defer res.Body.Close()
+	pr.Status = res.StatusCode
+	pr.StatusText = res.Status
+	pr.Headers = res.Header.Clone()
+
+	body := &cappedBuffer{max: maxBody}
+	out := io.Writer(body)
+	if w != nil {
+		copyHeaders(w.Header(), res.Header)
+		w.WriteHeader(res.StatusCode)
+		out = io.MultiWriter(w, body)
+	}
+	_, err = io.Copy(out, res.Body)
+	pr.Body = body.buf.String()
+	pr.BodyTruncated = body.truncated
+	if err != nil {
+		pr.Error = "reading response: " + err.Error()
+		log.Printf("proxy relay to %s: reading response: %v", dest, err)
+		return
+	}
+	log.Printf("proxy relay to %s: %s", dest, res.Status)
+}
+
+// cappedBuffer keeps the first max bytes written to it and discards the rest.
+// It never returns an error, so it does not stop an io.MultiWriter.
+type cappedBuffer struct {
+	buf       bytes.Buffer
+	max       int
+	truncated bool
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if room := c.max - c.buf.Len(); room < len(p) {
+		c.truncated = true
+		if room > 0 {
+			c.buf.Write(p[:room])
+		}
+		return len(p), nil
+	}
+	return c.buf.Write(p)
+}
+
+// logDest is the destination URL of ev, for log messages.
+func logDest(cfg store.Config, ev store.Event) string {
+	if dest, err := destinationURL(cfg.ProxyURL, ev.Subpath); err == nil {
+		return dest
+	}
+	return cfg.ProxyURL
 }
 
 // destinationURL appends the escaped subpath to the path of base. The query
@@ -90,28 +194,6 @@ func destinationURL(base, subpath string) (string, error) {
 		return "", err
 	}
 	return u.JoinPath(subpath).String(), nil
-}
-
-// autoForward relays a freshly stored event to the destination in the
-// background when the endpoint is configured to proxy. Rejected events are
-// never forwarded. Failures are logged, not surfaced to the sender.
-func (s *Server) autoForward(cfg store.Config, ev store.Event) {
-	if ev.Rejected || !proxyEnabled(cfg) {
-		return
-	}
-	dest, err := destinationURL(cfg.ProxyURL, ev.Subpath)
-	if err != nil {
-		dest = cfg.ProxyURL
-	}
-	msg := messageFromEvent(ev)
-	go func() {
-		res := s.forward(cfg, ev.Subpath, msg.Method, msg.Body, msg.Headers)
-		if res.Error != "" {
-			log.Printf("proxy forward to %s failed: %s", dest, res.Error)
-			return
-		}
-		log.Printf("proxy forward to %s: %s", dest, res.StatusText)
-	}()
 }
 
 // checkProxySecret constant-time compares the X-Proxy-Secret header against the

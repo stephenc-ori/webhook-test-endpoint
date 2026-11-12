@@ -148,3 +148,31 @@ func TestExpire(t *testing.T) {
 		t.Error("endpoint with live subscriber should not be expired")
 	}
 }
+
+func TestSetProxyResponse(t *testing.T) {
+	s := New()
+	e := s.Create()
+	ch, unsubscribe := e.Subscribe()
+	defer unsubscribe()
+
+	ev := e.Add(Event{Method: "POST", Proxy: &ProxyResponse{URL: "http://d", Pending: true}})
+	<-ch
+
+	e.SetProxyResponse(ev.ID, ProxyResponse{URL: "http://d", Status: 201})
+	got := <-ch
+	if got.ID != ev.ID || got.Proxy == nil || got.Proxy.Pending || got.Proxy.Status != 201 {
+		t.Errorf("notified event = %+v", got)
+	}
+	if stored, _ := e.Event(ev.ID); stored.Proxy.Status != 201 {
+		t.Errorf("stored proxy = %+v", stored.Proxy)
+	}
+
+	// An event that is no longer retained is ignored.
+	e.ClearEvents()
+	e.SetProxyResponse(ev.ID, ProxyResponse{Status: 500})
+	select {
+	case got := <-ch:
+		t.Errorf("unexpected notification %+v", got)
+	default:
+	}
+}
